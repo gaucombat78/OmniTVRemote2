@@ -28,7 +28,7 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Detect Project Structure & Auto-Fix Gradlew
+      - name: Detect Project Structure & Ensure Gradle Wrapper JAR
         run: |
           echo "=== Listing Repository Root Files ==="
           ls -la
@@ -46,19 +46,26 @@ jobs:
             fi
           fi
 
-          # 2. Check if Android project files are present
+          # 2. Check if Android project files are actually present in repository
           if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
             echo "::error::No Android project files found in this repository! Please upload the contents of OmniRemote-Android-Source.zip (including 'app' and 'settings.gradle.kts') to your repo."
             exit 1
           fi
 
-          # 3. If gradlew is missing, automatically generate it using pre-installed system Gradle
-          if [ ! -f "gradlew" ]; then
-            echo ">>> gradlew not found. Auto-generating Gradle wrapper using system gradle..."
-            gradle wrapper --gradle-version 8.4 || true
+          # 3. CRITICAL: Ensure gradle/wrapper/gradle-wrapper.jar exists!
+          if [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo ">>> gradle/wrapper/gradle-wrapper.jar is missing. Regenerating wrapper JAR..."
+            mkdir -p gradle/wrapper
+            gradle wrapper --gradle-version 8.4 --distribution-type bin || true
           fi
 
-          # 4. Ensure gradlew is executable
+          # 4. Fallback download of wrapper jar if system gradle failed
+          if [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo ">>> Fetching official gradle-wrapper.jar directly..."
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar || true
+          fi
+
+          # 5. Ensure gradlew is executable
           chmod +x gradlew || true
 
       - name: Prepare Android Signing Keystore
@@ -82,9 +89,11 @@ jobs:
 
       - name: Build Standalone APKs
         run: |
-          if [ -f "./gradlew" ]; then
+          if [ -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Building with Gradle Wrapper..."
             ./gradlew assembleRelease assembleDebug --stacktrace
           else
+            echo "Building with system Gradle..."
             gradle assembleRelease assembleDebug --stacktrace
           fi
         env:
