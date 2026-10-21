@@ -37,22 +37,31 @@ jobs:
           echo "=== Listing Repository Root Files ==="
           ls -la
 
-          # 1. If user committed files inside a subfolder, move them to root
+          # 1. If files are in a subfolder (e.g. OmniRemote-Android-Source/), move them to root
           if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
-            echo "settings.gradle.kts not found at root. Checking subdirectories..."
             SUBDIR=$(find . -maxdepth 3 -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1 | xargs -r dirname)
             if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "." ]; then
-              echo ">>> Detected project inside subfolder: $SUBDIR. Moving files to repository root..."
+              echo ">>> Detected subfolder: $SUBDIR. Moving files to root..."
               shopt -s dotglob
               cp -r "$SUBDIR"/* . || true
               shopt -u dotglob
-              ls -la
             fi
           fi
 
-          # 2. Verify Android files
-          if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
-            echo "::error::No Android project files found! Please upload the contents of the zip file to your repo."
+          # 2. If files were uploaded without the 'app' wrapper folder, auto-create it
+          if [ ! -d "app" ]; then
+            if [ -d "src" ] || [ -f "build.gradle.kts" ]; then
+              echo ">>> Detected Android files at root without 'app' folder. Auto-creating 'app' folder..."
+              mkdir -p app
+              [ -d "src" ] && cp -r src app/ || true
+              [ -f "build.gradle.kts" ] && cp build.gradle.kts app/ || true
+              ls -la app/
+            fi
+          fi
+
+          # 3. Verify files exist
+          if [ ! -d "app" ] && [ ! -f "settings.gradle.kts" ]; then
+            echo "::error::No Android project files found! Please upload your files to the repository."
             exit 1
           fi
 
