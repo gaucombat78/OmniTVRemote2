@@ -26,14 +26,18 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
-      - name: Detect Project Structure & Ensure Gradle Wrapper JAR
+      - name: Setup Official Gradle 8.4 Engine
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Detect Project Structure
         run: |
           echo "=== Listing Repository Root Files ==="
           ls -la
 
-          # 1. Check if user committed files inside a subfolder (e.g. OmniRemote-Android-Source/)
+          # 1. If user committed files inside a subfolder, move them to root
           if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
             echo "settings.gradle.kts not found at root. Checking subdirectories..."
             SUBDIR=$(find . -maxdepth 3 -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1 | xargs -r dirname)
@@ -46,33 +50,17 @@ jobs:
             fi
           fi
 
-          # 2. Check if Android project files are actually present in repository
+          # 2. Verify Android files
           if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
-            echo "::error::No Android project files found in this repository! Please upload the contents of OmniRemote-Android-Source.zip (including 'app' and 'settings.gradle.kts') to your repo."
+            echo "::error::No Android project files found! Please upload the contents of the zip file to your repo."
             exit 1
           fi
-
-          # 3. CRITICAL: Ensure gradle/wrapper/gradle-wrapper.jar exists!
-          if [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo ">>> gradle/wrapper/gradle-wrapper.jar is missing. Regenerating wrapper JAR..."
-            mkdir -p gradle/wrapper
-            gradle wrapper --gradle-version 8.4 --distribution-type bin || true
-          fi
-
-          # 4. Fallback download of wrapper jar if system gradle failed
-          if [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo ">>> Fetching official gradle-wrapper.jar directly..."
-            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar || true
-          fi
-
-          # 5. Ensure gradlew is executable
-          chmod +x gradlew || true
 
       - name: Prepare Android Signing Keystore
         run: |
           mkdir -p app/
           if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "No custom keystore provided. Generating standalone release keystore..."
+            echo "Generating standalone release keystore..."
             keytool -genkeypair -v \
               -keystore app/debug.keystore \
               -alias androiddebugkey \
@@ -88,14 +76,7 @@ jobs:
           fi
 
       - name: Build Standalone APKs
-        run: |
-          if [ -s "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Building with Gradle Wrapper..."
-            ./gradlew assembleRelease assembleDebug --stacktrace
-          else
-            echo "Building with system Gradle..."
-            gradle assembleRelease assembleDebug --stacktrace
-          fi
+        run: gradle assembleRelease assembleDebug --stacktrace
         env:
           KEYSTORE_PATH: "debug.keystore"
           KEYSTORE_PASSWORD: "android"
